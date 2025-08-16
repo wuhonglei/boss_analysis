@@ -4,93 +4,194 @@
 Boss直聘AI Agent岗位爬虫 - Playwright版本
 """
 
+import json
 import asyncio
 import random
-import requests
+from urllib.parse import quote, urlparse, parse_qs
 from datetime import datetime
 import pandas as pd
-from local_type import JobListQueryParams, JobDetailQueryParams, JobListItem, ZpDataInJobList, JobListResponse, JobDetailResponse, JobDetail
-from config import HEADERS
+from config import SiteConfig
+from local_type import JobDetail, JobListItem, JobListResponse
+from playwright.async_api import async_playwright, Page, Playwright, Browser, Route
+from playwright.async_api import BrowserContext as Context
+from playwright_stealth import Stealth
+import logging
+from util.fs import write_json
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class BossSpider:
-    def __init__(self):
-        self.session = requests.Session()
-        self.session.headers.update(HEADERS)
+    def __init__(self, site_config: SiteConfig):
+        self.playwright: Playwright | None = None
+        self.browser: Browser | None = None
+        self.context: Context | None = None
+        self.page: Page | None = None
+        self.site_config: SiteConfig = site_config
+        self.current_page: int = 1
+        self.page_size: int = 10
 
-    async def get_job_list(self, params: JobListQueryParams):
-        """获取页面"""
-        base_url = 'https://www.zhipin.com/wapi/zpgeek/search/joblist.json'
+    async def init(self):
+        """异步初始化方法"""
+        await self.init_browser()
+
+    async def init_browser(self):
+        """初始化浏览器"""
+        if self.playwright:
+            return
+
+        custom_languages = ('zh-CN', 'en')
+        stealth = Stealth(
+            navigator_languages_override=custom_languages,
+            init_scripts_only=True
+        )
+
+        self.playwright = await async_playwright().start()
+        self.browser = await self.playwright.chromium.launch(headless=False)
+        if not self.browser:
+            raise Exception("浏览器初始化失败")
+
+        self.context = await self.browser.new_context()
+        if not self.context:
+            raise Exception("上下文初始化失败")
+
+        await stealth.apply_stealth_async(self.context)
+
+        self.page = await self.context.new_page()
+        if not self.page:
+            raise Exception("页面初始化失败")
+
+    async def close_browser(self):
+        """关闭浏览器"""
+        if self.page:
+            await self.page.close()
+            self.page = None
+        if self.context:
+            await self.context.close()
+            self.context = None
+        if self.browser:
+            await self.browser.close()
+            self.browser = None
+        if self.playwright:
+            await self.playwright.stop()
+            self.playwright = None
+
+    async def handle_joblist_response(self, route: Route, job_list: list[JobListItem]):
+        """处理岗位列表响应"""
+        # 监听请求参数
+        qs = parse_qs(urlparse(route.request.url).query)
+        next_page = int(qs.get('page', ['1'])[0])
+        self.page_size = int(qs.get('pageSize', ['10'])[0])
+        if self.current_page != next_page:
+            self.current_page = next_page
+
         try:
-            response = self.session.get(
-                base_url, params=params)  # type: ignore
-            data: JobListResponse = response.json()
-            return data['zpData']['jobList']
-        except Exception as e:
-            print(f"获取岗位列表出错: {str(e)}")
-            return []
+            original = await route.fetch()
+            body = await original.body()
+            json_data: JobListResponse = json.loads(body.decode('utf-8'))
+            if json_data.get('code') == 0:
+                job_list.extend(json_data.get('zpData', {}).get('jobList', []))
+                write_json(job_list, 'data/joblist.json')
 
-    async def get_job_detail(self, params: JobDetailQueryParams) -> JobDetail | None:
-        """获取岗位详情"""
-        base_url = 'https://www.zhipin.com/wapi/zpgeek/job/detail.json'
-        try:
-            response = self.session.get(
-                base_url, params=params)  # type: ignore
-            data: JobDetailResponse = response.json()
-            return data['zpData']
-        except Exception as e:
-            print(f"获取岗位详情出错: {str(e)}")
-            return None
+            body = json.dumps(json_data).encode('utf-8')
 
-    async def search_jobs(self, keyword, city="深圳", page=1) -> list[JobDetail]:
-        """搜索岗位"""
-        try:
-            params = JobListQueryParams(query=keyword, city=city, page=page)
-            job_list = await self.get_job_list(params)
-            tasks = []
-            for job in job_list:
-                params = JobDetailQueryParams(
-                    securityId=job['securityId'], lid=job['lid'])
-                tasks.append(self.get_job_detail(params))
-            job_details: list[JobDetail] = await asyncio.gather(*tasks)
-            return job_details
-
+            await route.fulfill(
+                status=original.status,
+                headers=original.headers,
+                body=body
+            )
         except Exception as e:
-            print(f"搜索出错: {str(e)}")
-            return []
+            logger.error(f"处理响应时出错: {e}")
+            # 出错时继续请求
+            await route.continue_()
+
+    async def handle_detail_response(self, route: Route):
+        """处理岗位详情响应"""
+        logger.info(f"处理岗位详情响应: {route.request.url}")
+        logger.info(f"处理岗位详情响应: {route.request.headers}")
+        await route.continue_()
+
+    def get_job_list_url(self, keyword: str, city: str) -> str:
+        """获取岗位列表URL"""
+        city_id = self.site_config.city_id_map.get(city)
+        if not city_id:
+            raise Exception(f"城市{city}不存在")
+        keyword_encoded = quote(keyword)
+        return f'{self.site_config.urls.search_page_url}?query={keyword_encoded}&city={city_id}'
+
+    async def scroll_page(self, max_pages: int):
+        """滚动页面"""
+        if not self.page:
+            raise Exception("页面未初始化")
+
+        last_height = 0
+        while self.current_page <= max_pages:
+            current_height = await self.page.evaluate("document.body.scrollHeight")
+            # 如果高度没有变化，则认为已经滚动到底部
+            if current_height == last_height:
+                logger.warning("页面高度没有变化，认为已经滚动到底部")
+                break
+            last_height = current_height
+            await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await self.page.wait_for_load_state('networkidle')
+            await asyncio.sleep(random.uniform(1, 2))
+
+        logger.info(f"共滚动 {self.current_page} 页")
 
     async def search_ai_agent_jobs(self, city="北京", max_pages=3):
         """搜索AI Agent岗位"""
+        if not self.page:
+            raise Exception("页面未初始化")
+
         keywords = ["AI Agent"]
-        all_jobs = []
+        job_list = []
+
+        await self.page.route(f'{self.site_config.urls.job_list_url}**', lambda route: self.handle_joblist_response(route, job_list))
+        await self.page.route(f'{self.site_config.urls.job_detail_url}**', self.handle_detail_response)
 
         for keyword in keywords:
-            print(f"\n搜索关键词: {keyword}")
-            for page in range(1, max_pages + 1):
-                jobs = await self.search_jobs(keyword, city, page)
-                if jobs:
-                    all_jobs.extend(jobs)
-                await asyncio.sleep(random.uniform(2, 4))
+            logger.info(f"\n搜索关键词: {keyword}")
+            url = self.get_job_list_url(keyword, city)
+            await self.page.goto(url)
+            await self.page.wait_for_load_state('networkidle')
+            await asyncio.sleep(random.uniform(3, 5))
+            await self.scroll_page(max_pages)  # 滚动页面
 
-        return self.filter_jobs(all_jobs)
+        filtered_jobs = self.filter_jobs(job_list)
+        logger.info(f"共找到 {len(filtered_jobs)} 个岗位")
+        return filtered_jobs
 
-    def filter_jobs(self, jobs: list[JobDetail]) -> list[JobDetail]:
+    def filter_jobs(self, jobs: list[JobListItem]) -> list[JobListItem]:
         """过滤AI Agent相关岗位"""
-        black_keywords = ['产品', '运营', '设计', '市场', '销售',
-                          '客服', '行政', '财务', '法务', '人力', '公关', '其他']
+        black_keywords = ['产品', '运营', '设计', '市场', '销售', '客服',
+                          '行政', '财务', '法务', '人力', '公关', '其他', '实习', '兼职', '实习生']
         filtered = []
+        encryptJobIds: set[str] = set()  # 用于去重
 
         for job in jobs:
             if job is None:
                 continue
 
-            job_name = job.get('jobInfo', {}).get('jobName', '').lower()
+            encryptJobId = job.get('encryptJobId', '')
+            if encryptJobId in encryptJobIds:
+                continue
+
+            job_name = job.get('jobName', '').lower()
+            success = True
             for keyword in black_keywords:
                 if keyword.lower() in job_name:
-                    continue
-                filtered.append(job)
+                    success = False
+                    break
 
-        return filtered
+            if not success:
+                continue
+
+            encryptJobIds.add(encryptJobId)
+            filtered.append(job)
+
+        limit = self.page_size * self.current_page
+        return filtered[:limit]
 
     def save_to_excel(self, jobs, filename=None):
         """保存到Excel"""
@@ -100,13 +201,13 @@ class BossSpider:
 
         df = pd.DataFrame(jobs)
         df.to_excel(filename, index=False)
-        print(f"已保存到: {filename}")
-        print(f"总岗位数: {len(jobs)}")
+        logger.info(f"已保存到: {filename}")
+        logger.info(f"总岗位数: {len(jobs)}")
 
     async def run(self, city="深圳", max_pages=1):
         """运行爬虫"""
         try:
-            print(f"开始爬取城市: {city}")
+            logger.info(f"开始爬取城市: {city}")
 
             jobs = await self.search_ai_agent_jobs(city, max_pages)
 
@@ -119,14 +220,14 @@ class BossSpider:
                     seen_names.add(name)
                     unique_jobs.append(job)
 
-            print(f"去重后共 {len(unique_jobs)} 个岗位")
+            logger.info(f"去重后共 {len(unique_jobs)} 个岗位")
 
             if unique_jobs:
                 self.save_to_excel(unique_jobs)
 
             return unique_jobs
         except Exception as e:
-            print(f"爬取出错: {str(e)}")
+            logger.error(f"爬取出错: {str(e)}")
             return []
 
 
@@ -134,9 +235,9 @@ async def main():
     """主函数"""
     cities = ["北京", "上海", "深圳", "广州"]
 
-    print("可选择的城市:")
+    logger.info("可选择的城市:")
     for i, city in enumerate(cities, 1):
-        print(f"{i}. {city}")
+        logger.info(f"{i}. {city}")
 
     choice = input("选择城市编号 (1-4，默认深圳): ").strip()
     if choice.isdigit() and 1 <= int(choice) <= 4:
@@ -144,13 +245,17 @@ async def main():
     else:
         city = "深圳"
 
-    print(f"选择城市: {city}")
+    logger.info(f"选择城市: {city}")
 
-    spider = BossSpider()
+    site_name = 'ZHIPIN'
+    site_config = SiteConfig(site_name)
+
+    spider = BossSpider(site_config)
+    await spider.init()  # 初始化浏览器
     jobs = await spider.run(city, max_pages=1)
 
     if jobs:
-        print("爬取完成！结果已保存到Excel文件")
+        logger.info("爬取完成！结果已保存到Excel文件")
 
 if __name__ == "__main__":
     asyncio.run(main())
