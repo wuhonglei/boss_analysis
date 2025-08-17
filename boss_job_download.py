@@ -7,11 +7,13 @@ Boss直聘AI Agent岗位爬虫 - Playwright版本
 import json
 import asyncio
 import random
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote, urlparse, parse_qs
 from datetime import datetime
 import pandas as pd
 from config import SiteConfig
-from local_type import JobDetail, JobListItem, JobListResponse
+from local_type import JobDetail, JobDetailResponse, JobListItem, JobListResponse
 from playwright.async_api import async_playwright, Page, Playwright, Browser, Route
 from playwright.async_api import BrowserContext as Context
 from playwright_stealth import Stealth
@@ -31,6 +33,10 @@ class BossSpider:
         self.site_config: SiteConfig = site_config
         self.current_page: int = 1
         self.page_size: int = 10
+        self.start_interval_check_login_status: bool = False
+        self.is_login: bool = False
+        self.thread_pool = ThreadPoolExecutor(max_workers=2)
+        self.login_check_thread = None
 
     async def init(self):
         """异步初始化方法"""
@@ -77,6 +83,49 @@ class BossSpider:
             await self.playwright.stop()
             self.playwright = None
 
+    async def detect_login_status(self, need_goto: bool = True):
+        """检测登录状态"""
+        if not self.page:
+            raise Exception("页面未初始化")
+
+        logger.info(f"检测登录状态: {need_goto}")
+        try:
+            if need_goto:
+                await self.page.goto(self.site_config.urls.home_page_url)
+            user_name = await self.page.locator('[ka=header-username]').all()
+            self.is_login = len(user_name) > 0
+        except Exception as e:
+            logger.error(f"检测登录状态时出错: {e}")
+            self.is_login = False
+
+    async def detect_login_status_and_interval_check(self):
+        """异步检测登录状态"""
+        logger.info("开始检测登录状态")
+        await self.detect_login_status(need_goto=True)
+        if self.is_login:
+            self.toggle_interval_check_login_status(False)
+        else:
+            self.toggle_interval_check_login_status(True)
+            # 启动间隔检测但不等待
+            await self._interval_check_login_status_async()
+
+    async def _interval_check_login_status_async(self):
+        """异步间隔检测登录状态"""
+        count = 1
+        while self.start_interval_check_login_status and not self.is_login and self.page and not self.page.is_closed():
+            logger.info(f"开始间隔检测登录状态: {count} 次")
+            await self.detect_login_status(need_goto=False)
+            await asyncio.sleep(1)
+            count += 1
+
+    def toggle_interval_check_login_status(self, start: bool):
+        """开启/关闭间隔检测登录状态"""
+        self.start_interval_check_login_status = start
+
+    def has_login(self):
+        """是否已登录"""
+        return self.is_login
+
     async def handle_joblist_response(self, route: Route, job_list: list[JobListItem]):
         """处理岗位列表响应"""
         # 监听请求参数
@@ -106,11 +155,27 @@ class BossSpider:
             # 出错时继续请求
             await route.continue_()
 
-    async def handle_detail_response(self, route: Route):
+    async def handle_detail_response(self, route: Route, job_detail: list[JobDetail]):
         """处理岗位详情响应"""
-        logger.info(f"处理岗位详情响应: {route.request.url}")
-        logger.info(f"处理岗位详情响应: {route.request.headers}")
-        await route.continue_()
+        try:
+            original = await route.fetch()
+            body = await original.body()
+            json_data: JobDetailResponse = json.loads(body.decode('utf-8'))
+            if json_data.get('code') == 0:
+                job_detail.append(json_data.get('zpData', {}))
+                write_json(job_detail, 'data/jobdetail.json')
+
+            body = json.dumps(json_data).encode('utf-8')
+
+            await route.fulfill(
+                status=original.status,
+                headers=original.headers,
+                body=body
+            )
+        except Exception as e:
+            logger.error(f"处理响应时出错: {e}")
+            # 出错时继续请求
+            await route.continue_()
 
     def get_job_list_url(self, keyword: str, city: str) -> str:
         """获取岗位列表URL"""
@@ -139,26 +204,44 @@ class BossSpider:
 
         logger.info(f"共滚动 {self.current_page} 页")
 
+    async def click_all_jobs(self):
+        """点击所有岗位"""
+        if not self.page:
+            raise Exception("页面未初始化")
+
+        job_list = await self.page.locator('.card-area .job-name').all()
+        # 页面默认会加载第一条，所以先点击第二条，再点击第一条，确保能触发详情页的请求
+        job_list = [job_list[1], job_list[0]] + job_list[2:]
+        logger.info(f"共找到 {len(job_list)} 个岗位")
+        for job in job_list:
+            await job.click(timeout=3000)
+            await self.page.wait_for_load_state('networkidle', timeout=3000)
+            await asyncio.sleep(random.uniform(1, 2))
+
     async def search_ai_agent_jobs(self, city="北京", max_pages=3):
         """搜索AI Agent岗位"""
         if not self.page:
             raise Exception("页面未初始化")
 
         keywords = ["AI Agent"]
-        job_list = []
+        job_list: list[JobListItem] = []
+        job_detail: list[JobDetail] = []
 
         await self.page.route(f'{self.site_config.urls.job_list_url}**', lambda route: self.handle_joblist_response(route, job_list))
-        await self.page.route(f'{self.site_config.urls.job_detail_url}**', self.handle_detail_response)
+        await self.page.route(f'{self.site_config.urls.job_detail_url}**', lambda route: self.handle_detail_response(route, job_detail))
 
         for keyword in keywords:
             logger.info(f"\n搜索关键词: {keyword}")
+            # 获取职位列表
             url = self.get_job_list_url(keyword, city)
             await self.page.goto(url)
             await self.page.wait_for_load_state('networkidle')
             await asyncio.sleep(random.uniform(3, 5))
             await self.scroll_page(max_pages)  # 滚动页面
+            await self.click_all_jobs()  # 点击所有岗位列表
 
         filtered_jobs = self.filter_jobs(job_list)
+
         logger.info(f"共找到 {len(filtered_jobs)} 个岗位")
         return filtered_jobs
 
@@ -233,6 +316,12 @@ class BossSpider:
 
 async def main():
     """主函数"""
+    site_name = 'ZHIPIN'
+    site_config = SiteConfig(site_name)
+    spider = BossSpider(site_config)
+    await spider.init()
+    await spider.detect_login_status_and_interval_check()
+
     cities = ["北京", "上海", "深圳", "广州"]
 
     logger.info("可选择的城市:")
@@ -247,13 +336,7 @@ async def main():
 
     logger.info(f"选择城市: {city}")
 
-    site_name = 'ZHIPIN'
-    site_config = SiteConfig(site_name)
-
-    spider = BossSpider(site_config)
-    await spider.init()  # 初始化浏览器
     jobs = await spider.run(city, max_pages=1)
-
     if jobs:
         logger.info("爬取完成！结果已保存到Excel文件")
 
