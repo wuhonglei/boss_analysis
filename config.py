@@ -27,7 +27,8 @@ SITE_CONFIG = {
             "武汉": "101200100",
             "西安": "101110100",
             "苏州": "101190400"
-        }
+        },
+        'auth_path': 'data/auth_zhipin.json'
     }
 }
 
@@ -45,8 +46,10 @@ class SiteConfig:
     name: str
     urls: SiteUrls
     city_id_map: dict[str, str]
+    auth_path: str
 
     def __init__(self, name: Literal['ZHIPIN']):
         self.name = name
         self.urls = SiteUrls(**SITE_CONFIG[name]['urls'])
         self.city_id_map = SITE_CONFIG[name]['city_id_map']
+        self.auth_path = SITE_CONFIG[name]['auth_path']

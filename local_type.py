@@ -106,7 +106,7 @@ class BrandComInfo(TypedDict):
     customerBrandStageName: str  # 客户品牌阶段名称
 
 
-class JobDetail(TypedDict):
+class JobDetailItem(TypedDict):
     pageType: int  # 页面类型
     selfAccess: bool  # 是否自主访问
     securityId: str  # 安全ID
@@ -120,4 +120,4 @@ class JobDetail(TypedDict):
 class JobDetailResponse(TypedDict):
     code: int
     message: str
-    zpData: JobDetail
+    zpData: JobDetailItem

@@ -2,8 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 Boss直聘AI Agent岗位爬虫 - Playwright版本
+logger.
 """
 
+import os
 import json
 import asyncio
 import random
@@ -12,16 +14,21 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote, urlparse, parse_qs
 from datetime import datetime
 import pandas as pd
+from typing import TypeVar, List
 from config import SiteConfig
-from local_type import JobDetail, JobDetailResponse, JobListItem, JobListResponse
+from local_type import JobDetailItem, JobDetailResponse, JobListItem, JobListResponse
 from playwright.async_api import async_playwright, Page, Playwright, Browser, Route
 from playwright.async_api import BrowserContext as Context
 from playwright_stealth import Stealth
 import logging
-from util.fs import write_json
+from util.fs import exists_file, write_json, delete_file
+from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+T = TypeVar('T', JobListItem, JobDetailItem)
 
 
 class BossSpider:
@@ -58,7 +65,8 @@ class BossSpider:
         if not self.browser:
             raise Exception("浏览器初始化失败")
 
-        self.context = await self.browser.new_context()
+        self.context = await self.browser.new_context(
+            storage_state=self.site_config.auth_path if exists_file(self.site_config.auth_path) else None)
         if not self.context:
             raise Exception("上下文初始化失败")
 
@@ -83,6 +91,18 @@ class BossSpider:
             await self.playwright.stop()
             self.playwright = None
 
+    async def save_auth(self):
+        """保存认证信息"""
+        if not self.context:
+            raise Exception("页面未初始化")
+
+        if self.is_login:
+            logger.info("保存认证信息")
+            await self.context.storage_state(path=self.site_config.auth_path)
+        else:
+            logger.info("删除认证信息")
+            delete_file(self.site_config.auth_path)
+
     async def detect_login_status(self, need_goto: bool = True):
         """检测登录状态"""
         if not self.page:
@@ -97,30 +117,6 @@ class BossSpider:
         except Exception as e:
             logger.error(f"检测登录状态时出错: {e}")
             self.is_login = False
-
-    async def detect_login_status_and_interval_check(self):
-        """异步检测登录状态"""
-        logger.info("开始检测登录状态")
-        await self.detect_login_status(need_goto=True)
-        if self.is_login:
-            self.toggle_interval_check_login_status(False)
-        else:
-            self.toggle_interval_check_login_status(True)
-            # 启动间隔检测但不等待
-            await self._interval_check_login_status_async()
-
-    async def _interval_check_login_status_async(self):
-        """异步间隔检测登录状态"""
-        count = 1
-        while self.start_interval_check_login_status and not self.is_login and self.page and not self.page.is_closed():
-            logger.info(f"开始间隔检测登录状态: {count} 次")
-            await self.detect_login_status(need_goto=False)
-            await asyncio.sleep(1)
-            count += 1
-
-    def toggle_interval_check_login_status(self, start: bool):
-        """开启/关闭间隔检测登录状态"""
-        self.start_interval_check_login_status = start
 
     def has_login(self):
         """是否已登录"""
@@ -155,7 +151,7 @@ class BossSpider:
             # 出错时继续请求
             await route.continue_()
 
-    async def handle_detail_response(self, route: Route, job_detail: list[JobDetail]):
+    async def handle_detail_response(self, route: Route, job_detail: list[JobDetailItem]):
         """处理岗位详情响应"""
         try:
             original = await route.fetch()
@@ -213,7 +209,7 @@ class BossSpider:
         # 页面默认会加载第一条，所以先点击第二条，再点击第一条，确保能触发详情页的请求
         job_list = [job_list[1], job_list[0]] + job_list[2:]
         logger.info(f"共找到 {len(job_list)} 个岗位")
-        for job in job_list:
+        for job in tqdm(job_list, desc="点击岗位"):
             await job.click()
             await self.page.wait_for_load_state('networkidle')
             await asyncio.sleep(random.uniform(1, 2))
@@ -225,7 +221,7 @@ class BossSpider:
 
         keywords = ["AI Agent"]
         job_list: list[JobListItem] = []
-        job_detail: list[JobDetail] = []
+        job_detail: list[JobDetailItem] = []
 
         await self.page.route(f'{self.site_config.urls.job_list_url}**', lambda route: self.handle_joblist_response(route, job_list))
         await self.page.route(f'{self.site_config.urls.job_detail_url}**', lambda route: self.handle_detail_response(route, job_detail))
@@ -241,11 +237,12 @@ class BossSpider:
             await self.click_all_jobs()  # 点击所有岗位列表
 
         filtered_jobs = self.filter_jobs(job_list)
+        filtered_job_details = self.filter_jobs(job_detail)
 
         logger.info(f"共找到 {len(filtered_jobs)} 个岗位")
-        return filtered_jobs
+        return filtered_jobs, filtered_job_details
 
-    def filter_jobs(self, jobs: list[JobListItem]) -> list[JobListItem]:
+    def filter_jobs(self, jobs: List[T]) -> List[T]:
         """过滤AI Agent相关岗位"""
         black_keywords = ['产品', '运营', '设计', '市场', '销售', '客服',
                           '行政', '财务', '法务', '人力', '公关', '其他', '实习', '兼职', '实习生']
@@ -256,11 +253,20 @@ class BossSpider:
             if job is None:
                 continue
 
-            encryptJobId = job.get('encryptJobId', '')
-            if encryptJobId in encryptJobIds:
-                continue
+            # 检查是否为JobListItem类型（有encryptJobId和jobName键）
+            if 'encryptJobId' in job and 'jobName' in job:
+                encryptJobId = job.get('encryptJobId', '')
+                job_name = job.get('jobName', '').lower()
+                if encryptJobId in encryptJobIds:
+                    continue
 
-            job_name = job.get('jobName', '').lower()
+            # 检查是否为JobDetailItem类型（有jobInfo键）
+            elif 'jobInfo' in job:
+                encryptJobId = job.get('jobInfo', {}).get('encryptJobId', '')
+                job_name = job.get('jobInfo', {}).get('jobName', '').lower()
+                if encryptJobId in encryptJobIds:
+                    continue
+
             success = True
             for keyword in black_keywords:
                 if keyword.lower() in job_name:
@@ -289,29 +295,9 @@ class BossSpider:
 
     async def run(self, city="深圳", max_pages=1):
         """运行爬虫"""
-        try:
-            logger.info(f"开始爬取城市: {city}")
-
-            jobs = await self.search_ai_agent_jobs(city, max_pages)
-
-            # 去重
-            unique_jobs = []
-            seen_names = set()
-            for job in jobs:
-                name = job.get('岗位名称', '')
-                if name and name not in seen_names:
-                    seen_names.add(name)
-                    unique_jobs.append(job)
-
-            logger.info(f"去重后共 {len(unique_jobs)} 个岗位")
-
-            if unique_jobs:
-                self.save_to_excel(unique_jobs)
-
-            return unique_jobs
-        except Exception as e:
-            logger.error(f"爬取出错: {str(e)}")
-            return []
+        job_list, job_detail = await self.search_ai_agent_jobs(city, max_pages)
+        write_json(job_list, 'data/joblist.json')
+        write_json(job_detail, 'data/jobdetail.json')
 
 
 async def main():
@@ -329,6 +315,9 @@ async def main():
         logger.info(f"{i}. {city}")
 
     choice = input("选择城市编号 (1-4，默认深圳): ").strip()
+    await spider.detect_login_status(need_goto=False)
+    await spider.save_auth()
+
     if choice.isdigit() and 1 <= int(choice) <= 4:
         city = cities[int(choice) - 1]
     else:

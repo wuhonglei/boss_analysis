@@ -9,6 +9,7 @@ dependencies = [
     "playwright>=1.54.0",
     "playwright-stealth>=2.0.0",
     "requests>=2.32.4",
+    "tqdm>=4.67.1",
 ]
 
 [tool.uv]
