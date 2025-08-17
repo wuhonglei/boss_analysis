@@ -128,3 +128,4 @@ class UserInput(TypedDict):
     salary: str
     experience: str
     user_job_details: bool
+    other_info: str

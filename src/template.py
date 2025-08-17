@@ -18,7 +18,7 @@ prompt_template = Template("""
 学历: {{ user_input.degree }}
 薪资: {{ user_input.salary }}
 经验: {{ user_input.experience }}
-
+{% if user_input.other_info %}其他补充信息: {{ user_input.other_info }}{% endif %}
 详细岗位列表描述如下:
 {{ job_description }}
 """)
@@ -43,6 +43,6 @@ def get_prompt(job_details: list[JobDetailItem], search_keywords: list[str], use
 
 
 if __name__ == "__main__":
-    job_detail = read_json('./data/jobdetail.json')
+    job_details = read_json('./data/jobdetail.json', [])
     # print(get_single_job_str(job_detail[0]))
-    print(get_multi_job_str(job_detail[0:2]))
+    print(get_multi_job_str(job_details[0:2]))

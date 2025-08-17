@@ -36,6 +36,11 @@ def collect_user_input(exist_job_details: bool):
         default=last_user_input.get('experience', "3")
     ).ask()
 
+    other_info = questionary.text(
+        "请输入其他补充信息(如：当前职位)",
+        default=last_user_input.get('other_info', ""),
+    ).ask()
+
     if exist_job_details:
         user_job_details = questionary.confirm(
             "是否使用已有的岗位信息? 如果使用, 则不需要重新搜索岗位",
@@ -45,6 +50,6 @@ def collect_user_input(exist_job_details: bool):
         user_job_details = False
 
     current_user_input = UserInput(
-        degree=degree, salary=salary, experience=experience, user_job_details=user_job_details)
+        degree=degree, salary=salary, experience=experience, user_job_details=user_job_details, other_info=other_info)
     write_json(current_user_input, 'data/user_input.json')
     return current_user_input

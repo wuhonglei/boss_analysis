@@ -8,9 +8,9 @@ def write_json(data, file_path: str):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def read_json(file_path: str, default_value: dict | list | None = None):
+def read_json(file_path: str, default_value=None):
     if not exists_file(file_path):
-        return default_value
+        return [] if default_value is None else default_value
 
     with open(file_path, 'r', encoding='utf-8') as f:
         return json.load(f)
