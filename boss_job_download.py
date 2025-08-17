@@ -108,7 +108,6 @@ class BossSpider:
         if not self.page:
             raise Exception("页面未初始化")
 
-        logger.info(f"检测登录状态: {need_goto}")
         try:
             if need_goto:
                 await self.page.goto(self.site_config.urls.home_page_url)
@@ -187,7 +186,7 @@ class BossSpider:
             raise Exception("页面未初始化")
 
         last_height = 0
-        while self.current_page <= max_pages:
+        while self.current_page <= max_pages - 1:
             current_height = await self.page.evaluate("document.body.scrollHeight")
             # 如果高度没有变化，则认为已经滚动到底部
             if current_height == last_height:
@@ -209,7 +208,7 @@ class BossSpider:
         # 页面默认会加载第一条，所以先点击第二条，再点击第一条，确保能触发详情页的请求
         job_list = [job_list[1], job_list[0]] + job_list[2:]
         logger.info(f"共找到 {len(job_list)} 个岗位")
-        for job in tqdm(job_list, desc="点击岗位"):
+        for job in tqdm(job_list, desc="流量岗位详情 🔎"):
             await job.click()
             await self.page.wait_for_load_state('networkidle')
             await asyncio.sleep(random.uniform(1, 2))
@@ -257,15 +256,14 @@ class BossSpider:
             if 'encryptJobId' in job and 'jobName' in job:
                 encryptJobId = job.get('encryptJobId', '')
                 job_name = job.get('jobName', '').lower()
-                if encryptJobId in encryptJobIds:
-                    continue
 
             # 检查是否为JobDetailItem类型（有jobInfo键）
             elif 'jobInfo' in job:
-                encryptJobId = job.get('jobInfo', {}).get('encryptJobId', '')
+                encryptJobId = job.get('jobInfo', {}).get('encryptId', '')
                 job_name = job.get('jobInfo', {}).get('jobName', '').lower()
-                if encryptJobId in encryptJobIds:
-                    continue
+
+            if encryptJobId in encryptJobIds:
+                continue
 
             success = True
             for keyword in black_keywords:
