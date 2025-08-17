@@ -217,7 +217,7 @@ class BossSpider:
             return
 
         # 页面默认会加载第一条，所以先点击第二条，再点击第一条，确保能触发详情页的请求
-        job_list = [job_list[1], job_list[0]] + job_list[2:][:5]
+        job_list = [job_list[1], job_list[0]] + job_list[2:]
         for job in tqdm(job_list, desc="流量岗位详情 🔎"):
             if self.page.is_closed():
                 logger.warning("页面已关闭, 退出")
@@ -264,8 +264,10 @@ class BossSpider:
         last_url = self.page.url
         logger.info(f"地址栏变化为 {last_url}")
 
+        await self.detect_login_status(need_goto=False)
+        await self.save_auth()
+
         while self.page and not self.page.is_closed():
-            await self.save_auth()
             await self.page.wait_for_load_state('load')
             await asyncio.sleep(random.uniform(1, 3))
             logger.info(f"页面加载完成")
@@ -279,6 +281,7 @@ class BossSpider:
             await self.click_all_jobs()  # 点击所有岗位列表
 
             # 监听地址栏 url 是否发生变化，只有变化了才继续执行
+            logger.info(f"等待继续搜索..., 如果想退出可以直接关闭浏览器")
             changed = await self.wait_for_url_change(last_url)
             if not changed:
                 logger.warning("地址栏没有变化, 退出")
@@ -296,8 +299,6 @@ class BossSpider:
 
     def filter_jobs(self, jobs: List[T]) -> List[T]:
         """过滤AI Agent相关岗位"""
-        black_keywords = ['产品', '运营', '设计', '市场', '销售', '客服',
-                          '行政', '财务', '法务', '人力', '公关', '其他', '实习', '兼职', '实习生']
         filtered = []
         encryptJobIds: set[str] = set()  # 用于去重
 
@@ -316,15 +317,6 @@ class BossSpider:
                 job_name = job.get('jobInfo', {}).get('jobName', '').lower()
 
             if encryptJobId in encryptJobIds:
-                continue
-
-            success = True
-            for keyword in black_keywords:
-                if keyword.lower() in job_name:
-                    success = False
-                    break
-
-            if not success:
                 continue
 
             encryptJobIds.add(encryptJobId)

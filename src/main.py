@@ -18,7 +18,8 @@ async def main():
     prompt = get_prompt(job_detail, search_keywords)
     write_text(prompt, 'data/prompt.txt')
     logger.info(f'prompt saved to data/prompt.txt')
-    logger.info(prompt[:100] + '...' if len(prompt) > 100 else prompt)
+    logger.info(prompt[:100] + '...' + prompt[-100:]
+                if len(prompt) > 100 else prompt)
 
 
 if __name__ == "__main__":
