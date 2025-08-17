@@ -5,11 +5,9 @@ Boss直聘AI Agent岗位爬虫 - Playwright版本
 logger.
 """
 
-import os
 import json
 import asyncio
 import random
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote, urlparse, parse_qs
 from datetime import datetime
@@ -45,10 +43,6 @@ class BossSpider:
         self.thread_pool = ThreadPoolExecutor(max_workers=2)
         self.login_check_thread = None
 
-    async def init(self):
-        """异步初始化方法"""
-        await self.init_browser()
-
     async def init_browser(self):
         """初始化浏览器"""
         if self.playwright:
@@ -73,6 +67,7 @@ class BossSpider:
         await stealth.apply_stealth_async(self.context)
 
         self.page = await self.context.new_page()
+        logger.info("浏览器初始化完成, 打开了新页面")
         if not self.page:
             raise Exception("页面初始化失败")
 
@@ -108,11 +103,14 @@ class BossSpider:
         if not self.page:
             raise Exception("页面未初始化")
 
+        logger.info("开始检测登录状态")
+
         try:
             if need_goto:
                 await self.page.goto(self.site_config.urls.home_page_url)
             user_name = await self.page.locator('[ka=header-username]').all()
             self.is_login = len(user_name) > 0
+            logger.info(f"登录状态: {self.is_login}")
         except Exception as e:
             logger.error(f"检测登录状态时出错: {e}")
             self.is_login = False
@@ -123,7 +121,8 @@ class BossSpider:
 
     async def handle_joblist_response(self, route: Route, job_list: list[JobListItem]):
         """处理岗位列表响应"""
-        # 监听请求参数
+        logger.info(f"处理岗位列表响应: {route.request.url}")
+
         qs = parse_qs(urlparse(route.request.url).query)
         next_page = int(qs.get('page', ['1'])[0])
         self.page_size = int(qs.get('pageSize', ['10'])[0])
@@ -153,6 +152,7 @@ class BossSpider:
     async def handle_detail_response(self, route: Route, job_detail: list[JobDetailItem]):
         """处理岗位详情响应"""
         try:
+            logger.info(f"处理岗位详情响应: {route.request.url}")
             original = await route.fetch()
             body = await original.body()
             json_data: JobDetailResponse = json.loads(body.decode('utf-8'))
@@ -182,7 +182,10 @@ class BossSpider:
 
     async def scroll_page(self, max_pages: int):
         """滚动页面"""
+        logger.info(f"滚动页面: {max_pages} 页")
+
         if not self.page:
+            logger.error("页面未初始化")
             raise Exception("页面未初始化")
 
         last_height = 0
@@ -204,41 +207,50 @@ class BossSpider:
         if not self.page:
             raise Exception("页面未初始化")
 
+        logger.info("开始点击所有岗位")
+
         job_list = await self.page.locator('.card-area .job-name').all()
+        if len(job_list) < 2:
+            logger.warning("没有找到岗位")
+            return
+
         # 页面默认会加载第一条，所以先点击第二条，再点击第一条，确保能触发详情页的请求
         job_list = [job_list[1], job_list[0]] + job_list[2:]
-        logger.info(f"共找到 {len(job_list)} 个岗位")
         for job in tqdm(job_list, desc="流量岗位详情 🔎"):
             await job.click()
-            await self.page.wait_for_load_state('networkidle')
-            await asyncio.sleep(random.uniform(1, 2))
+            await self.page.wait_for_load_state('load')
+            await asyncio.sleep(random.uniform(1, 3))
 
-    async def search_ai_agent_jobs(self, city="北京", max_pages=3):
+    async def search_ai_agent_jobs(self, max_pages=3):
         """搜索AI Agent岗位"""
         if not self.page:
             raise Exception("页面未初始化")
 
-        keywords = ["AI Agent"]
         job_list: list[JobListItem] = []
         job_detail: list[JobDetailItem] = []
 
         await self.page.route(f'{self.site_config.urls.job_list_url}**', lambda route: self.handle_joblist_response(route, job_list))
         await self.page.route(f'{self.site_config.urls.job_detail_url}**', lambda route: self.handle_detail_response(route, job_detail))
 
-        for keyword in keywords:
-            logger.info(f"\n搜索关键词: {keyword}")
-            # 获取职位列表
-            url = self.get_job_list_url(keyword, city)
-            await self.page.goto(url)
-            await self.page.wait_for_load_state('networkidle')
-            await asyncio.sleep(random.uniform(3, 5))
-            await self.scroll_page(max_pages)  # 滚动页面
-            await self.click_all_jobs()  # 点击所有岗位列表
+        # 监听地址栏变化为 site_config.urls.search_page_url 后, 在执行下面的操作
+        logger.info("请直接在打开的页面中搜索你想要的岗位信息, 然后点击搜索按钮")
+        await self.page.wait_for_url(f'{self.site_config.urls.search_page_url}**')
+        logger.info(f"地址栏变化为 {self.site_config.urls.search_page_url}")
+        await self.page.wait_for_load_state('load')
+        await asyncio.sleep(random.uniform(1, 3))
+        logger.info(f"页面加载完成")
 
+        # 获取职位列表
+        await self.scroll_page(max_pages)  # 滚动页面
+        await self.click_all_jobs()  # 点击所有岗位列表
+
+        logger.info(
+            f"开始过滤岗位, 过滤前: {len(job_list)} 个岗位列表, {len(job_detail)} 个岗位详情")
         filtered_jobs = self.filter_jobs(job_list)
         filtered_job_details = self.filter_jobs(job_detail)
 
-        logger.info(f"共找到 {len(filtered_jobs)} 个岗位")
+        logger.info(
+            f"过滤完成, 共找到 {len(filtered_job_details)} 个岗位详情, {len(filtered_jobs)} 个岗位列表")
         return filtered_jobs, filtered_job_details
 
     def filter_jobs(self, jobs: List[T]) -> List[T]:
@@ -280,52 +292,22 @@ class BossSpider:
         limit = self.page_size * self.current_page
         return filtered[:limit]
 
-    def save_to_excel(self, jobs, filename=None):
-        """保存到Excel"""
-        if not filename:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"boss_ai_agent_jobs_{timestamp}.xlsx"
-
-        df = pd.DataFrame(jobs)
-        df.to_excel(filename, index=False)
-        logger.info(f"已保存到: {filename}")
-        logger.info(f"总岗位数: {len(jobs)}")
-
-    async def run(self, city="深圳", max_pages=1):
-        """运行爬虫"""
-        job_list, job_detail = await self.search_ai_agent_jobs(city, max_pages)
+    def save_to_json(self, job_list: list[JobListItem], job_detail: list[JobDetailItem]):
+        """保存到JSON"""
         write_json(job_list, 'data/joblist.json')
         write_json(job_detail, 'data/jobdetail.json')
 
 
-async def main():
+async def download():
     """主函数"""
     site_name = 'ZHIPIN'
     site_config = SiteConfig(site_name)
     spider = BossSpider(site_config)
-    await spider.init()
+    await spider.init_browser()
     await spider.detect_login_status(need_goto=True)
+    job_list, job_detail = await spider.search_ai_agent_jobs(max_pages=1)
+    spider.save_to_json(job_list, job_detail)
 
-    cities = ["北京", "上海", "深圳", "广州"]
-
-    logger.info("可选择的城市:")
-    for i, city in enumerate(cities, 1):
-        logger.info(f"{i}. {city}")
-
-    choice = input("选择城市编号 (1-4，默认深圳): ").strip()
-    await spider.detect_login_status(need_goto=False)
-    await spider.save_auth()
-
-    if choice.isdigit() and 1 <= int(choice) <= 4:
-        city = cities[int(choice) - 1]
-    else:
-        city = "深圳"
-
-    logger.info(f"选择城市: {city}")
-
-    jobs = await spider.run(city, max_pages=1)
-    if jobs:
-        logger.info("爬取完成！结果已保存到Excel文件")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(download())
