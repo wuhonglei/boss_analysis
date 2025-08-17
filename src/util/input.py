@@ -4,7 +4,7 @@ from config import degree_map, salary_map
 from local_type import UserInput
 
 
-def collect_user_input():
+def collect_user_input(exist_job_details: bool):
     # 学历
     degree = questionary.select(
         "你的最高学历?",
@@ -28,4 +28,13 @@ def collect_user_input():
         "你的工作经验(如：3年、5年、10年)?",
         default="3"
     ).ask()
-    return UserInput(degree=degree, salary=salary, experience=experience)
+
+    if exist_job_details:
+        user_job_details = questionary.confirm(
+            "是否使用已有的岗位信息? 如果使用, 则不需要重新搜索岗位",
+            default=True
+        ).ask()
+    else:
+        user_job_details = False
+
+    return UserInput(degree=degree, salary=salary, experience=experience, user_job_details=user_job_details)

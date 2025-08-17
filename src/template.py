@@ -39,7 +39,7 @@ def get_multi_job_str(job_details: list[JobDetailItem]) -> str:
 
 def get_prompt(job_details: list[JobDetailItem], search_keywords: list[str], user_input: UserInput) -> str:
     job_description = get_multi_job_str(job_details)
-    return prompt_template.render(search_keywords=search_keywords, job_description=job_description)
+    return prompt_template.render(search_keywords=search_keywords, job_description=job_description, user_input=user_input)
 
 
 if __name__ == "__main__":

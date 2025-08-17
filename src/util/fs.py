@@ -9,6 +9,9 @@ def write_json(data, file_path):
 
 
 def read_json(file_path):
+    if not exists_file(file_path):
+        return []
+
     with open(file_path, 'r', encoding='utf-8') as f:
         return json.load(f)
 
