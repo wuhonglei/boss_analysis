@@ -214,8 +214,8 @@ class BossSpider:
         job_list = [job_list[1], job_list[0]] + job_list[2:]
         logger.info(f"共找到 {len(job_list)} 个岗位")
         for job in job_list:
-            await job.click(timeout=3000)
-            await self.page.wait_for_load_state('networkidle', timeout=3000)
+            await job.click()
+            await self.page.wait_for_load_state('networkidle')
             await asyncio.sleep(random.uniform(1, 2))
 
     async def search_ai_agent_jobs(self, city="北京", max_pages=3):
@@ -320,7 +320,7 @@ async def main():
     site_config = SiteConfig(site_name)
     spider = BossSpider(site_config)
     await spider.init()
-    await spider.detect_login_status_and_interval_check()
+    await spider.detect_login_status(need_goto=True)
 
     cities = ["北京", "上海", "深圳", "广州"]
 
