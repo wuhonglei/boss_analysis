@@ -21,6 +21,7 @@ from playwright_stealth import Stealth
 import logging
 from util.fs import exists_file, write_json, delete_file
 from tqdm import tqdm
+import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -215,11 +216,27 @@ class BossSpider:
             return
 
         # 页面默认会加载第一条，所以先点击第二条，再点击第一条，确保能触发详情页的请求
-        job_list = [job_list[1], job_list[0]] + job_list[2:]
+        job_list = [job_list[1], job_list[0]] + job_list[2:][:5]
         for job in tqdm(job_list, desc="流量岗位详情 🔎"):
+            if self.page.is_closed():
+                logger.warning("页面已关闭, 退出")
+                return
+
             await job.click()
             await self.page.wait_for_load_state('load')
             await asyncio.sleep(random.uniform(1, 3))
+
+    async def wait_for_url_change(self, initial_url: str, timeout: int = 60):
+        """等待地址栏变化"""
+        start_time = time.time()
+        while self.page and not self.page.is_closed():
+            if self.page.url != initial_url:
+                logger.info(f"地址栏变化为 {self.page.url}")
+                return True
+            await asyncio.sleep(random.uniform(1, 3))
+            if time.time() - start_time > timeout:  # 超时
+                return False
+        return False
 
     async def search_ai_agent_jobs(self, max_pages=3):
         """搜索AI Agent岗位"""
@@ -232,17 +249,26 @@ class BossSpider:
         await self.page.route(f'{self.site_config.urls.job_list_url}**', lambda route: self.handle_joblist_response(route, job_list))
         await self.page.route(f'{self.site_config.urls.job_detail_url}**', lambda route: self.handle_detail_response(route, job_detail))
 
-        # 监听地址栏变化为 site_config.urls.search_page_url 后, 在执行下面的操作
-        logger.info("请直接在打开的页面中搜索你想要的岗位信息, 然后点击搜索按钮")
+        logger.info("请直接在打开的页面中搜索你想要的岗位信息, 然后点击搜索按钮, 如果想退出, 请直接关闭浏览器")
         await self.page.wait_for_url(f'{self.site_config.urls.search_page_url}**')
-        logger.info(f"地址栏变化为 {self.site_config.urls.search_page_url}")
-        await self.page.wait_for_load_state('load')
-        await asyncio.sleep(random.uniform(1, 3))
-        logger.info(f"页面加载完成")
+        last_url = self.page.url
+        logger.info(f"地址栏变化为 {last_url}")
 
-        # 获取职位列表
-        await self.scroll_page(max_pages)  # 滚动页面
-        await self.click_all_jobs()  # 点击所有岗位列表
+        while self.page and not self.page.is_closed():
+            await self.page.wait_for_load_state('load')
+            await asyncio.sleep(random.uniform(1, 3))
+            logger.info(f"页面加载完成")
+
+            # 获取职位列表
+            await self.scroll_page(max_pages)  # 滚动页面
+            await self.click_all_jobs()  # 点击所有岗位列表
+
+            # 监听地址栏 url 是否发生变化，只有变化了才继续执行
+            changed = await self.wait_for_url_change(last_url)
+            if not changed:
+                logger.warning("地址栏没有变化, 退出")
+                break
+            last_url = self.page.url
 
         logger.info(
             f"开始过滤岗位, 过滤前: {len(job_list)} 个岗位列表, {len(job_detail)} 个岗位详情")
