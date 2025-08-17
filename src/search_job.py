@@ -151,7 +151,7 @@ class BossSpider:
             # 出错时继续请求
             await route.continue_()
 
-    async def handle_detail_response(self, route: Route, job_detail: list[JobDetailItem]):
+    async def handle_detail_response(self, route: Route, job_details: list[JobDetailItem]):
         """处理岗位详情响应"""
         try:
             logger.info(f"处理岗位详情响应: {route.request.url}")
@@ -159,7 +159,7 @@ class BossSpider:
             body = await original.body()
             json_data: JobDetailResponse = json.loads(body.decode('utf-8'))
             if json_data.get('code') == 0:
-                job_detail.append(json_data.get('zpData', {}))
+                job_details.append(json_data.get('zpData', {}))
                 # write_json(job_detail, 'data/jobdetail.json')
 
             body = json.dumps(json_data).encode('utf-8')
@@ -254,10 +254,10 @@ class BossSpider:
 
         search_keywords: set[str] = set()
         job_list: list[JobListItem] = []
-        job_detail: list[JobDetailItem] = []
+        job_details: list[JobDetailItem] = []
 
         await self.page.route(f'{self.site_config.urls.job_list_url}**', lambda route: self.handle_joblist_response(route, job_list))
-        await self.page.route(f'{self.site_config.urls.job_detail_url}**', lambda route: self.handle_detail_response(route, job_detail))
+        await self.page.route(f'{self.site_config.urls.job_detail_url}**', lambda route: self.handle_detail_response(route, job_details))
 
         logger.info("请直接在打开的页面中搜索你想要的岗位信息, 然后点击搜索按钮, 如果想退出, 请直接关闭浏览器")
         await self.page.wait_for_url(f'{self.site_config.urls.search_page_url}**', timeout=0)
@@ -269,7 +269,7 @@ class BossSpider:
 
         while self.page and not self.page.is_closed():
             await self.page.wait_for_load_state('load')
-            await asyncio.sleep(random.uniform(1, 3))
+            await asyncio.sleep(random.uniform(2, 4))
             logger.info(f"页面加载完成")
 
             keyword = await self.get_search_keywords()
@@ -278,6 +278,7 @@ class BossSpider:
 
             # 获取职位列表
             await self.scroll_page(max_pages)  # 滚动页面
+            await asyncio.sleep(random.uniform(2, 4))
             await self.click_all_jobs()  # 点击所有岗位列表
 
             # 监听地址栏 url 是否发生变化，只有变化了才继续执行
@@ -289,9 +290,9 @@ class BossSpider:
             last_url = self.page.url
 
         logger.info(
-            f"开始过滤岗位, 过滤前: {len(job_list)} 个岗位列表, {len(job_detail)} 个岗位详情")
+            f"开始过滤岗位, 过滤前: {len(job_list)} 个岗位列表, {len(job_details)} 个岗位详情")
         filtered_jobs = self.filter_jobs(job_list)
-        filtered_job_details = self.filter_jobs(job_detail)
+        filtered_job_details = self.filter_jobs(job_details)
 
         logger.info(
             f"过滤完成, 共找到 {len(filtered_job_details)} 个岗位详情, {len(filtered_jobs)} 个岗位列表")
@@ -339,10 +340,10 @@ async def search():
     spider = BossSpider(site_config)
     await spider.init_browser()
     await spider.detect_login_status(need_goto=True)
-    job_list, job_detail, search_keywords = await spider.search(max_pages=1)
-    spider.save_to_json(job_list, job_detail, search_keywords)
+    job_list, job_details, search_keywords = await spider.search(max_pages=1)
+    spider.save_to_json(job_list, job_details, search_keywords)
     await spider.close_browser()
-    return job_list, job_detail, search_keywords
+    return job_list, job_details, search_keywords
 
 
 if __name__ == "__main__":

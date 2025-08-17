@@ -121,3 +121,9 @@ class JobDetailResponse(TypedDict):
     code: int
     message: str
     zpData: JobDetailItem
+
+
+class UserInput(TypedDict):
+    degree: str
+    salary: str
+    experience: str
