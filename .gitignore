@@ -10,4 +10,4 @@ __pycache__/
 .coverage.*
 .coverage.*
 
-src/data/*.json
+data/*.json

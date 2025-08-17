@@ -86,6 +86,7 @@ class BossSpider:
         if self.playwright:
             await self.playwright.stop()
             self.playwright = None
+        logger.info("浏览器关闭完成")
 
     async def save_auth(self):
         """保存认证信息"""
@@ -159,7 +160,7 @@ class BossSpider:
             json_data: JobDetailResponse = json.loads(body.decode('utf-8'))
             if json_data.get('code') == 0:
                 job_detail.append(json_data.get('zpData', {}))
-                write_json(job_detail, 'data/jobdetail.json')
+                # write_json(job_detail, 'data/jobdetail.json')
 
             body = json.dumps(json_data).encode('utf-8')
 
@@ -238,11 +239,20 @@ class BossSpider:
                 return False
         return False
 
-    async def search_ai_agent_jobs(self, max_pages=3):
+    async def get_search_keywords(self):
+        """获取搜索关键词"""
+        if not self.page:
+            raise Exception("页面未初始化")
+
+        search_keywords = await self.page.locator('.search-input-box input').input_value()
+        return search_keywords.strip()
+
+    async def search(self, max_pages=3):
         """搜索AI Agent岗位"""
         if not self.page:
             raise Exception("页面未初始化")
 
+        search_keywords: set[str] = set()
         job_list: list[JobListItem] = []
         job_detail: list[JobDetailItem] = []
 
@@ -250,14 +260,19 @@ class BossSpider:
         await self.page.route(f'{self.site_config.urls.job_detail_url}**', lambda route: self.handle_detail_response(route, job_detail))
 
         logger.info("请直接在打开的页面中搜索你想要的岗位信息, 然后点击搜索按钮, 如果想退出, 请直接关闭浏览器")
-        await self.page.wait_for_url(f'{self.site_config.urls.search_page_url}**')
+        await self.page.wait_for_url(f'{self.site_config.urls.search_page_url}**', timeout=0)
         last_url = self.page.url
         logger.info(f"地址栏变化为 {last_url}")
 
         while self.page and not self.page.is_closed():
+            await self.save_auth()
             await self.page.wait_for_load_state('load')
             await asyncio.sleep(random.uniform(1, 3))
             logger.info(f"页面加载完成")
+
+            keyword = await self.get_search_keywords()
+            if keyword:
+                search_keywords.add(keyword)
 
             # 获取职位列表
             await self.scroll_page(max_pages)  # 滚动页面
@@ -277,7 +292,7 @@ class BossSpider:
 
         logger.info(
             f"过滤完成, 共找到 {len(filtered_job_details)} 个岗位详情, {len(filtered_jobs)} 个岗位列表")
-        return filtered_jobs, filtered_job_details
+        return filtered_jobs, filtered_job_details, list(search_keywords)
 
     def filter_jobs(self, jobs: List[T]) -> List[T]:
         """过滤AI Agent相关岗位"""
@@ -318,22 +333,25 @@ class BossSpider:
         limit = self.page_size * self.current_page
         return filtered[:limit]
 
-    def save_to_json(self, job_list: list[JobListItem], job_detail: list[JobDetailItem]):
+    def save_to_json(self, job_list: list[JobListItem], job_detail: list[JobDetailItem], search_keywords: list[str]):
         """保存到JSON"""
         write_json(job_list, 'data/joblist.json')
         write_json(job_detail, 'data/jobdetail.json')
+        write_json(search_keywords, 'data/search_keywords.json')
 
 
-async def download():
+async def search():
     """主函数"""
     site_name = 'ZHIPIN'
     site_config = SiteConfig(site_name)
     spider = BossSpider(site_config)
     await spider.init_browser()
     await spider.detect_login_status(need_goto=True)
-    job_list, job_detail = await spider.search_ai_agent_jobs(max_pages=1)
-    spider.save_to_json(job_list, job_detail)
+    job_list, job_detail, search_keywords = await spider.search(max_pages=1)
+    spider.save_to_json(job_list, job_detail, search_keywords)
+    await spider.close_browser()
+    return job_list, job_detail, search_keywords
 
 
 if __name__ == "__main__":
-    asyncio.run(download())
+    asyncio.run(search())
