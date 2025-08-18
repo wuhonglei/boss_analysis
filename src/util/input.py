@@ -48,6 +48,11 @@ def collect_user_input(exist_job_details: bool):
         default=last_user_input.get('other_info', ""),
     ).ask()
 
+    max_size = questionary.text(
+        "想要检索的最大岗位数量(如：30):",
+        default=str(last_user_input.get('max_size', 30))
+    ).ask()
+
     if exist_job_details:
         user_job_details = questionary.confirm(
             "是否使用已有的岗位信息? 如果使用, 则不需要重新搜索岗位",
@@ -55,11 +60,6 @@ def collect_user_input(exist_job_details: bool):
         ).ask()
     else:
         user_job_details = False
-
-    max_size = questionary.text(
-        "想要检索的最大岗位数量(如：30):",
-        default=str(last_user_input.get('max_size', 30))
-    ).ask()
 
     current_user_input = UserInput(
         degree=degree,

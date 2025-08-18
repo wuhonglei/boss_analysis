@@ -16,18 +16,6 @@ SITE_CONFIG = {
             'job_list_url': 'https://www.zhipin.com/wapi/zpgeek/search/joblist.json',
             'job_detail_url': 'https://www.zhipin.com/wapi/zpgeek/job/detail.json',
         },
-        'city_id_map': {
-            "北京": "101010100",
-            "上海": "101020100",
-            "深圳": "101280600",
-            "广州": "101280100",
-            "杭州": "101210100",
-            "成都": "101270100",
-            "南京": "101190100",
-            "武汉": "101200100",
-            "西安": "101110100",
-            "苏州": "101190400"
-        },
         'auth_path': 'data/auth_zhipin.json'
     }
 }
@@ -71,11 +59,9 @@ class SiteUrls:
 class SiteConfig:
     name: str
     urls: SiteUrls
-    city_id_map: dict[str, str]
     auth_path: str
 
     def __init__(self, name: Literal['ZHIPIN']):
         self.name = name
         self.urls = SiteUrls(**SITE_CONFIG[name]['urls'])
-        self.city_id_map = SITE_CONFIG[name]['city_id_map']
         self.auth_path = SITE_CONFIG[name]['auth_path']

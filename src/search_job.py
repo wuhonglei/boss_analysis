@@ -166,14 +166,6 @@ class BossSpider:
             # 出错时继续请求
             await route.continue_()
 
-    def get_job_list_url(self, keyword: str, city: str) -> str:
-        """获取岗位列表URL"""
-        city_id = self.site_config.city_id_map.get(city)
-        if not city_id:
-            raise Exception(f"城市{city}不存在")
-        keyword_encoded = quote(keyword)
-        return f'{self.site_config.urls.search_page_url}?query={keyword_encoded}&city={city_id}'
-
     async def scroll_page(self, user_input: UserInput, job_index: int):
         """滚动页面"""
         logger.info(f"尝试滚动页面, 目标岗位数量: {user_input['max_size']}")
