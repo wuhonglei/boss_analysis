@@ -14,7 +14,7 @@ single_job_template = Template("""\
 
 prompt_template = Template("""
 我是一名面试者，请根据我的职位搜索关键词和岗位描述，帮我分析当前招聘市场情况，并给出招聘建议。
-职位搜索关键词: {{ search_keywords | join(', ') }}
+职位搜索关键词: {{ user_input.job_names | join(', ') }}
 学历: {{ user_input.degree }}
 薪资: {{ user_input.salary }}
 经验: {{ user_input.experience }}
@@ -37,9 +37,9 @@ def get_multi_job_str(job_details: list[JobDetailItem]) -> str:
     return '\n\n'.join(job_str_list)
 
 
-def get_prompt(job_details: list[JobDetailItem], search_keywords: list[str], user_input: UserInput) -> str:
+def get_prompt(job_details: list[JobDetailItem], user_input: UserInput) -> str:
     job_description = get_multi_job_str(job_details)
-    return prompt_template.render(search_keywords=search_keywords, job_description=job_description, user_input=user_input)
+    return prompt_template.render(job_description=job_description, user_input=user_input)
 
 
 if __name__ == "__main__":

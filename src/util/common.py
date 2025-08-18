@@ -65,11 +65,9 @@ def does_experience_match(experience_name: str, user_experience: str):
         return False
 
     min_experience = get_digit_from_str(experience_range[0])
-    max_experience = get_digit_from_str(experience_range[1])
-
     min_user_experience = get_digit_from_str(user_experience.split('-')[0])
 
-    return min_experience <= min_user_experience <= max_experience
+    return min_experience <= min_user_experience
 
 
 def does_job_name_match(job_name: str, ignore_words: list[str]):
@@ -139,3 +137,35 @@ def filter_job_details(job_details: list[JobDetailItem], user_input: UserInput):
         filtered_job_details.append(job_detail)
 
     return filtered_job_details
+
+
+def get_unique_job_list(job_list: list[JobListItem]):
+    if not job_list:
+        return []
+
+    unique_job_list = []
+    encrypt_job_ids: set[str] = set()  # 用于去重
+    for job in job_list:
+        encrypt_job_id = job.get('encryptJobId', '')
+        if encrypt_job_id in encrypt_job_ids:
+            continue
+        encrypt_job_ids.add(encrypt_job_id)
+        unique_job_list.append(job)
+
+    return unique_job_list
+
+
+def get_unique_job_details(job_details: list[JobDetailItem]):
+    if not job_details:
+        return []
+
+    unique_job_details = []
+    encrypt_job_ids: set[str] = set()  # 用于去重
+    for job_detail in job_details:
+        encrypt_job_id = job_detail.get('jobInfo', {}).get('encryptId', '')
+        if encrypt_job_id in encrypt_job_ids:
+            continue
+        encrypt_job_ids.add(encrypt_job_id)
+        unique_job_details.append(job_detail)
+
+    return unique_job_details

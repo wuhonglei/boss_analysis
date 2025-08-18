@@ -130,6 +130,8 @@ class UserInput(TypedDict):
     experience: str
     user_job_details: bool
     other_info: str
+    max_size: int
+    job_names: list[str]
 
 
 JobItemOrDetailItem = TypeVar(
