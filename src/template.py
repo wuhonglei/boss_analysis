@@ -13,7 +13,7 @@ single_job_template = Template("""\
 """)
 
 prompt_template = Template("""
-我是一名面试者，请根据我的职位搜索关键词和岗位描述，帮我分析当前招聘市场情况，并给出招聘建议。
+我是一名面试者，请根据我的职位搜索关键词和岗位描述，帮我分析当前招聘市场情况，并给出面试建议。
 职位搜索关键词: {{ user_input.job_names | join(', ') }}
 学历: {{ user_input.degree }}
 薪资: {{ user_input.salary }}
