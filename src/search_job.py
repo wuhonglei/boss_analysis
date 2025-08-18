@@ -10,24 +10,19 @@ import asyncio
 import random
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote, urlparse, parse_qs
-from datetime import datetime
-import pandas as pd
-from typing import TypeVar, List
 from config import SiteConfig
-from local_type import JobDetailItem, JobDetailResponse, JobListItem, JobListResponse
+from local_type import JobDetailItem, JobDetailResponse, JobListItem, JobListResponse, UserInput, JobItemOrDetailItem
 from playwright.async_api import async_playwright, Page, Playwright, Browser, Route
 from playwright.async_api import BrowserContext as Context
 from playwright_stealth import Stealth
 import logging
-from util.fs import exists_file, write_json, delete_file
+from util.fs import exists_file, write_json, delete_file, read_json
+from util.common import filter_job_list
 from tqdm import tqdm
 import time
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-T = TypeVar('T', JobListItem, JobDetailItem)
 
 
 class BossSpider:
@@ -204,7 +199,7 @@ class BossSpider:
 
         logger.info(f"共滚动 {self.current_page} 页")
 
-    async def click_all_jobs(self):
+    async def click_all_jobs(self, filtered_job_list: list[JobListItem]):
         """点击所有岗位"""
         if not self.page:
             raise Exception("页面未初始化")
@@ -216,6 +211,7 @@ class BossSpider:
             logger.warning("没有找到岗位")
             return
 
+        encrypt_job_ids = [job['encryptJobId'] for job in filtered_job_list]
         # 页面默认会加载第一条，所以先点击第二条，再点击第一条，确保能触发详情页的请求
         job_list = [job_list[1], job_list[0]] + job_list[2:]
         for job in tqdm(job_list, desc="流量岗位详情 🔎"):
@@ -223,9 +219,18 @@ class BossSpider:
                 logger.warning("页面已关闭, 退出")
                 return
 
-            await job.click()
-            await self.page.wait_for_load_state('load')
-            await asyncio.sleep(random.uniform(1, 3))
+            href = await job.get_attribute('href') or ''
+            current_encrypt_job_id = href.split('/')[-1].split('.')[0]
+            if current_encrypt_job_id not in encrypt_job_ids:
+                continue
+
+            try:
+                await job.click()
+                await self.page.wait_for_load_state('load')
+                await asyncio.sleep(random.uniform(1, 3))
+            except Exception as e:
+                logger.error(f"点击岗位时出错: {e}")
+                continue
 
     async def wait_for_url_change(self, initial_url: str, timeout: int = 60):
         """等待地址栏变化"""
@@ -247,7 +252,7 @@ class BossSpider:
         search_keywords = await self.page.locator('.search-input-box input').input_value()
         return search_keywords.strip()
 
-    async def search(self, max_pages=3):
+    async def search(self, user_input: UserInput, max_pages=3):
         """搜索AI Agent岗位"""
         if not self.page:
             raise Exception("页面未初始化")
@@ -279,7 +284,8 @@ class BossSpider:
             # 获取职位列表
             await self.scroll_page(max_pages)  # 滚动页面
             await asyncio.sleep(random.uniform(2, 4))
-            await self.click_all_jobs()  # 点击所有岗位列表
+            # 点击所有岗位列表
+            await self.click_all_jobs(filter_job_list(job_list, user_input))
 
             # 监听地址栏 url 是否发生变化，只有变化了才继续执行
             logger.info(f"等待继续搜索..., 如果想退出可以直接关闭浏览器")
@@ -291,14 +297,14 @@ class BossSpider:
 
         logger.info(
             f"开始过滤岗位, 过滤前: {len(job_list)} 个岗位列表, {len(job_details)} 个岗位详情")
-        filtered_jobs = self.filter_jobs(job_list)
-        filtered_job_details = self.filter_jobs(job_details)
+        filtered_jobs = self.get_unique_jobs(job_list)
+        filtered_job_details = self.get_unique_jobs(job_details)
 
         logger.info(
             f"过滤完成, 共找到 {len(filtered_job_details)} 个岗位详情, {len(filtered_jobs)} 个岗位列表")
         return filtered_jobs, filtered_job_details, list(search_keywords)
 
-    def filter_jobs(self, jobs: List[T]) -> List[T]:
+    def get_unique_jobs(self, jobs: list[JobItemOrDetailItem]) -> list[JobItemOrDetailItem]:
         """过滤AI Agent相关岗位"""
         filtered = []
         encryptJobIds: set[str] = set()  # 用于去重
@@ -333,18 +339,19 @@ class BossSpider:
         write_json(search_keywords, 'data/search_keywords.json')
 
 
-async def search():
+async def search(user_input: UserInput):
     """主函数"""
     site_name = 'ZHIPIN'
     site_config = SiteConfig(site_name)
     spider = BossSpider(site_config)
     await spider.init_browser()
     await spider.detect_login_status(need_goto=True)
-    job_list, job_details, search_keywords = await spider.search(max_pages=1)
+    job_list, job_details, search_keywords = await spider.search(max_pages=1, user_input=user_input)
     spider.save_to_json(job_list, job_details, search_keywords)
     await spider.close_browser()
     return job_list, job_details, search_keywords
 
 
 if __name__ == "__main__":
-    asyncio.run(search())
+    user_input: UserInput = read_json('data/user_input.json')  # type:ignore
+    asyncio.run(search(user_input))

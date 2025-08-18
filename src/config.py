@@ -45,6 +45,19 @@ salary_map = [
     '50-100K',
 ]
 
+# 会被忽略的职位
+job_ignore_names = [
+    '产品',
+    '运营',
+    '市场',
+    '销售',
+    '技术支持',
+    '客服',
+    '行政',
+    '财务',
+    '实习'
+]
+
 
 @dataclass
 class SiteUrls:

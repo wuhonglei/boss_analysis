@@ -1,4 +1,4 @@
-from typing import TypedDict
+from typing import TypedDict, TypeVar
 
 
 class JobListQueryParams(TypedDict):
@@ -29,6 +29,7 @@ class JobListItem(TypedDict):
     securityId: str
     skills: list[str]  # 技能标签
     welfareList: list[str]  # 福利标签
+    encryptJobId: str  # 岗位加密ID
 
 
 class ZpDataInJobList(TypedDict):
@@ -129,3 +130,7 @@ class UserInput(TypedDict):
     experience: str
     user_job_details: bool
     other_info: str
+
+
+JobItemOrDetailItem = TypeVar(
+    'JobItemOrDetailItem', JobListItem, JobDetailItem)

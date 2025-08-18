@@ -18,12 +18,11 @@ logger = logging.getLogger(__name__)
 
 async def main(user_input: UserInput, job_details: list[JobDetailItem]):
     if not user_input['user_job_details']:
-        _, job_details, search_keywords = await search()
+        _, job_details, search_keywords = await search(user_input)
     else:
         search_keywords = read_json('data/search_keywords.json')
-        job_details = job_details
+        job_details = filter_job_details(job_details, user_input)
 
-    job_details = filter_job_details(job_details, user_input)
     prompt = get_prompt(job_details, search_keywords, user_input)
     write_text(prompt, 'data/prompt.txt')
     logger.info(f'prompt saved to data/prompt.txt')

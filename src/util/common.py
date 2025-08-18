@@ -1,7 +1,7 @@
 import re
 
-from local_type import JobDetailItem, UserInput
-from config import degree_map, salary_map
+from local_type import JobDetailItem, JobListItem, UserInput
+from config import degree_map, job_ignore_names, salary_map
 
 
 def get_nested_value(obj: dict, key: str):
@@ -72,9 +72,51 @@ def does_experience_match(experience_name: str, user_experience: str):
     return min_experience <= min_user_experience <= max_experience
 
 
+def does_job_name_match(job_name: str, ignore_words: list[str]):
+    if not job_name:
+        return True
+
+    for word in ignore_words:
+        if word in job_name:
+            return False
+    return True
+
+
+def filter_job_list(job_list: list[JobListItem], user_input: UserInput):
+    if not job_list:
+        return []
+
+    if not user_input:
+        return job_list
+
+    filtered_job_list = []
+    degree, salary, experience = user_input['degree'], user_input['salary'], user_input['experience']
+    for job in job_list:
+        degree_name = job['jobDegree']
+        salary_desc = job['salaryDesc']
+        experience_name = job['jobExperience']
+        job_name = job['jobName']
+
+        if not does_degree_match(degree_name, degree):
+            continue
+        if not does_salary_match(salary_desc, salary):
+            continue
+        if not does_experience_match(experience_name, experience):
+            continue
+        if not does_job_name_match(job_name, job_ignore_names):
+            continue
+
+        filtered_job_list.append(job)
+
+    return filtered_job_list
+
+
 def filter_job_details(job_details: list[JobDetailItem], user_input: UserInput):
     if not job_details:
         return []
+
+    if not user_input:
+        return job_details
 
     filtered_job_details = []
     degree, salary, experience = user_input['degree'], user_input['salary'], user_input['experience']
@@ -83,12 +125,15 @@ def filter_job_details(job_details: list[JobDetailItem], user_input: UserInput):
         degree_name = job_info['degreeName']
         salary_desc = job_info['salaryDesc']
         experience_name = job_info['experienceName']
+        job_name = job_info['jobName']
 
         if not does_degree_match(degree_name, degree):
             continue
         if not does_salary_match(salary_desc, salary):
             continue
         if not does_experience_match(experience_name, experience):
+            continue
+        if not does_job_name_match(job_name, job_ignore_names):
             continue
 
         filtered_job_details.append(job_detail)
