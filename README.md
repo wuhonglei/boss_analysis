@@ -4,6 +4,7 @@
 ## 1. 功能介绍
 
 这是一个基于Python的Boss直聘网站爬虫工具,专门用于分析和检索开发相关岗位信息,最终输出的是多个岗位合并后的提示词。
+提示词示例如下:
 ```岗位提示词
 我是一名面试者，请根据我的职位搜索关键词和岗位描述，帮我分析当前招聘市场情况，并给出面试建议。
 职位搜索关键词: ai agent, agent 开发
@@ -31,38 +32,7 @@
 </岗位1>
 
 <岗位2>
-岗位名称: 【web3 AI项目】AI-agent工程师
-薪资范围: 35-45K
-学历要求: 本科
-经验要求: 3-5年
-技能要求: Defi, 深度学习, web3, AI, RAG, Python
-工作职责
-1、开发 AI-Agent：利用 LLMs 和机器学习设计和实现自主 AI-Agent，根据用户输入和市场情况执行链上操作（例如，代币转账、交换、收益优化）。
- 2、LLM 集成：利用 LLMs（例如 Grok、基于 GPT 的模型）与 AutoGen 等工具，实现自然语言处理，使代理能够处理链上操作和多步对话。
- 3、代理协作：使用 CrewAI 等框架创建协调任务的多代理系统（例如，一个代理分析趋势，另一个执行交换）。
- 4、数据管道开发：构建管道，预处理并提供实时数据给 AI-Agent，包括链上指标（通过 The Graph 等 API）和离链来源（例如价格数据源、KOL 推文、媒体新闻）。
- 5、代理优化：通过 RAG、LLM 微调或内存持久性等技术增强代理功能，实现上下文感知。
- 6、合作：与区块链工程师合作，将 AI-Agent 与 DeFi 协议（例如 Perp、Spot、Loan）和智能合约集成，确保无缝链上执行。
- 7、研究与创新：探索前沿 AI 工具（例如 AutoGen、CrewAI）和 DeFAI 趋势，推进代理功能。
-
-要求
-经验：
-1、3年以上软件工程经验，专注于 AI、LLMs 或机器学习开发。
-2、在生产环境部署 AI/ML 模型的经验。
-技术技能：
-1、精通 Python 和 AI/ML 框架（例如 TensorFlow、PyTorch、Hugging Face Transformers）。
-2、对 LLMs 有深入了解，包括微调、提示工程和 API 集成（例如 xAI、OpenAI）。
-3、熟悉 AutoGen 或 CrewAI 等 AI 代理框架，用于构建自主或多代理系统。
-4、有数据管道和处理大型数据集的经验（例如 Pandas、NumPy，或云工具如 AWS/GCP）。
-5、对区块链/DeFi 概念（例如钱包、交易）和 Web3 库（例如 Web3.py、ethers.js）有基本了解。
-6、编程语言：Python（主要），JavaScript/TypeScript 为加分项。
-7、对 AI、LLMs 及其在 DeFi/Web3 创新中的应用充满热情。
- 
-首选资格：
-1、使用 AutoGen 进行基于 LLM 的代理开发或使用 CrewAI 进行多代理协调的经验。
-2、熟悉 DeFi 协议（例如 Uniswap、Curve）和链上数据工具（例如 The Graph、Chainlink）。
-3、对开源 AI 或 DeFi 项目有贡献（例如 GitHub 仓库）。
-4、解 RAG 框架（例如 LangChain、LlamaIndex）或代理生态系统如 Autonolas。
+。。。
 </岗位2>
 ...
 ```
