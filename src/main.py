@@ -22,6 +22,10 @@ async def main(user_input: UserInput, job_details: list[JobDetailItem]):
     else:
         job_details = filter_job_details(job_details, user_input)
 
+    if not job_details:
+        logger.warning("没有找到职位信息")
+        return
+
     prompt = get_prompt(job_details, user_input)
     write_text(prompt, 'data/prompt.txt')
     logger.info(f'prompt saved to data/prompt.txt')

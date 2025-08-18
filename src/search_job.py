@@ -20,6 +20,7 @@ from util.fs import exists_file, write_json, delete_file, read_json
 from util.common import filter_job_list, get_unique_job_list, get_unique_job_details
 from tqdm import tqdm
 import time
+import questionary
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -321,6 +322,13 @@ async def search(user_input: UserInput):
     spider = BossSpider(site_config)
     await spider.init_browser()
     await spider.detect_login_status(need_goto=True)
+    if not spider.has_login():
+        logger.warning("未登录, 最多只能检索 15 个职位, 跳过登录继续执行")
+        confirm = await questionary.confirm("当前未登录, 是否继续搜索(请在页面完成登录，登录后按回车)?", default=True).ask_async()
+        if not confirm:
+            await spider.close_browser()
+            return [], []
+
     job_list, job_details = await spider.search(user_input=user_input)
     spider.save_to_json(job_list, job_details)
     await spider.close_browser()
