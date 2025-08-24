@@ -6,6 +6,11 @@ from local_type import JobDetailItem, UserInput
 single_job_template = Template("""\
 岗位名称: {{ jobInfo.jobName }}
 薪资范围: {{ jobInfo.salaryDesc }}
+公司名称: {{ brandComInfo.brandName }}
+工作地点: {{ jobInfo.address }}
+行业名称: {{ brandComInfo.industryName }}
+公司规模: {{ brandComInfo.scaleName }}
+融资情况: {{ brandComInfo.stageName }}
 {% if jobInfo.degreeName %}学历要求: {{ jobInfo.degreeName }}{% endif %}
 {% if jobInfo.experienceName %}经验要求: {{ jobInfo.experienceName }}{% endif %}
 {% if jobInfo.showSkills %}技能要求: {{ jobInfo.showSkills | join(', ') }}{% endif %}
@@ -16,8 +21,8 @@ prompt_template = Template("""
 我是一名面试者，请根据我的职位搜索关键词和岗位描述，帮我分析当前招聘市场情况，并给出面试建议。
 职位搜索关键词: {{ user_input.job_names | join(', ') }}
 学历: {{ user_input.degree }}
-薪资: {{ user_input.salary }}
-经验: {{ user_input.experience }}
+工作经验: {{ user_input.experience }}
+期望薪资: {{ user_input.salary }}
 {% if user_input.other_info %}其他补充信息: {{ user_input.other_info }}{% endif %}
 详细岗位列表描述如下:
 {{ job_description }}

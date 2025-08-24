@@ -9,15 +9,15 @@ import json
 import asyncio
 import random
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import quote, urlparse, parse_qs
-from config import SiteConfig
+from urllib.parse import urlparse, parse_qs, urlencode
+from config import SiteConfig, query_params_map
 from local_type import JobDetailItem, JobDetailResponse, JobListItem, JobListResponse, UserInput, JobItemOrDetailItem
 from playwright.async_api import async_playwright, Page, Playwright, Browser, Route
 from playwright.async_api import BrowserContext as Context
 from playwright_stealth import Stealth
 import logging
 from util.fs import exists_file, write_json, delete_file, read_json
-from util.common import filter_job_list, get_unique_job_list, get_unique_job_details
+from util.common import filter_job_list, get_unique_job_list, get_unique_job_details, get_query_params
 from tqdm import tqdm
 import time
 import questionary
@@ -184,7 +184,10 @@ class BossSpider:
                 break
             last_height = current_height
             await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await self.page.wait_for_load_state('networkidle')
+            try:
+                await self.page.wait_for_load_state('networkidle', timeout=10000)
+            except Exception as e:
+                logger.error(f"等待网络空闲时出错: {e}")
             await asyncio.sleep(random.uniform(1, 2))
 
         logger.info(
@@ -279,10 +282,48 @@ class BossSpider:
 
         raise Exception(f"未找到搜索框: {job_name}")
 
-    async def search(self, user_input: UserInput):
+    def is_same_origin(self, url: str):
+        """判断是否是同源"""
+        if not url or not self.page:
+            return False
+        return urlparse(url).netloc == urlparse(self.page.url).netloc
+
+    def get_search_url(self, user_input: UserInput):
+        """获取搜索URL"""
+        if not self.page:
+            raise Exception("页面未初始化")
+
+        # 获取新生成的查询参数
+        new_query_params = get_query_params(query_params_map, user_input)
+        if not self.is_same_origin(self.site_config.urls.search_page_url):
+            return f'{self.site_config.urls.search_page_url}?{urlencode(new_query_params)}'
+
+        # 解析当前页面URL的查询参数
+        current_url = self.page.url
+        parsed_url = urlparse(current_url)
+        existing_params = parse_qs(parsed_url.query)
+
+        # 将现有参数转换为字典格式，去掉列表包装
+        existing_params_dict = {
+            k: v[0] if v else '' for k, v in existing_params.items()}
+
+        # 合并现有参数和新参数，新参数会覆盖现有参数
+        merged_params = {**existing_params_dict, **new_query_params}
+
+        # 过滤掉空值
+        merged_params = {k: v for k, v in merged_params.items() if v}
+        return f'{self.site_config.urls.search_page_url}?{urlencode(merged_params)}'
+
+    async def run(self, user_input: UserInput):
         """搜索AI Agent岗位"""
         if not self.page:
             raise Exception("页面未初始化")
+
+        search_url = self.get_search_url(user_input)
+        logger.info(f"搜索URL: {search_url}")
+        await self.page.goto(search_url)
+        await self.page.wait_for_load_state('load')
+        await asyncio.sleep(random.uniform(2, 4))
 
         await self.page.route(f'{self.site_config.urls.job_list_url}**', lambda route: self.handle_joblist_response(route, self.job_list))
         await self.page.route(f'{self.site_config.urls.job_detail_url}**', lambda route: self.handle_detail_response(route, self.job_details))
@@ -329,7 +370,7 @@ async def search(user_input: UserInput):
             await spider.close_browser()
             return [], []
 
-    job_list, job_details = await spider.search(user_input=user_input)
+    job_list, job_details = await spider.run(user_input=user_input)
     spider.save_to_json(job_list, job_details)
     await spider.close_browser()
     return job_list, job_details

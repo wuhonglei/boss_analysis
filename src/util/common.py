@@ -57,7 +57,7 @@ def does_salary_match(salary_desc_str: str, user_salary: str):
 
 
 def does_experience_match(experience_name: str, user_experience: str):
-    if not experience_name:
+    if not experience_name or experience_name == user_experience:
         return True
 
     experience_range = experience_name.split('-')
@@ -169,3 +169,63 @@ def get_unique_job_details(job_details: list[JobDetailItem]):
         unique_job_details.append(job_detail)
 
     return unique_job_details
+
+
+def get_query_params(query_params_map: dict, user_input: UserInput) -> dict:
+    """
+    根据用户输入，获取查询参数
+
+    查询参数的格式为：
+    {
+        'salary': list[int],
+        'experience': list[int],
+        'degree': list[int],
+    }
+    :param query_params_map: 查询参数映射
+    :param user_input: 用户输入
+    :return: 查询参数
+    """
+    if not query_params_map:
+        return {}
+
+    salary_query_params = query_params_map['salary']
+    salary_user_input = user_input['salary']
+    experience_query_params = query_params_map['experience']
+    experience_user_input = user_input['experience']
+    degree_query_params = query_params_map['degree']
+    degree_user_input = user_input['degree']
+
+    salary_ids = []
+    for item in salary_query_params:
+        min, max = item['min'], item['max']
+        if does_salary_match(f'{min}-{max}', salary_user_input):
+            salary_ids.append(item['id'])
+    if salary_ids:
+        salary_ids = [salary_ids[-1]]
+
+    experience_ids = []
+    for item in experience_query_params:
+        if 'value' in item and item['value'] == experience_user_input:
+            experience_ids.append(item['id'])
+            continue
+
+        if 'min' in item and 'max' in item and does_experience_match(f'{item['min']}-{item['max']}', experience_user_input):
+            experience_ids.append(item['id'])
+            continue
+    if experience_ids:
+        experience_ids = [experience_ids[-1]]
+
+    degree_ids = []
+    for item in degree_query_params:
+        if does_degree_match(item['value'], degree_user_input):
+            degree_ids.append(item['id'])
+
+    params = [
+        ('salary', salary_ids),
+        ('experience', experience_ids),
+        ('degree', degree_ids),
+    ]
+
+    return {
+        key: ','.join(map(str, value)) for key, value in params if value
+    }

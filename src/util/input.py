@@ -39,7 +39,7 @@ def collect_user_input(exist_job_details: bool):
 
     # 工作经验
     experience = questionary.text(
-        "你的工作经验(如：3年、5年、10年)",
+        "你的工作经验(如：3年、5年、10年、在校生、应届生)",
         default=last_user_input.get('experience', "3")
     ).ask()
 
